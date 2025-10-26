@@ -44,7 +44,7 @@ class static_arch_values:
         sys_read:       int = 0x10
         sys_write:      int = 0x04
         sys_sleep:      int = 0x02
-        sys_exit:       int = 0x20000
+        sys_exit:       int = 0x20
 
     class flags:
         equal_to:       int = 0x04
