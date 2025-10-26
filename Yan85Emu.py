@@ -4,7 +4,7 @@ import time
 
 from Config import static_arch_values, Colors
 class YAN85Emulator:
-    def __init__(self, memory_size: int = 0x300, code_size: int = 0x300, stdin_file: str = None):
+    def __init__(self, memory_size: int = 0x100, code_size: int = 0x300, stdin_file: str = None, memory_file: str = None):
         """Initialize the YAN85 emulator with separated code and data memory."""
         # Registers: a, b, c, d (generic), s (stack), i (instruction pointer), f (flags)
         self.registers: Dict[str, int] = {
@@ -20,9 +20,15 @@ class YAN85Emulator:
         self.last_command = ""
         
         # Separated memory architecture
-        self.memory_size = memory_size
-        self.memory = bytearray(memory_size)  # Data memory for stack, variables, etc.
 
+        if memory_file:
+            with open(memory_file, 'rb') as f:
+                self.memory = bytearray(f.read())
+            self.memory_size = len(self.memory)
+        else:
+            self.memory = bytearray(memory_size)  # Data memory for stack, variables, etc.
+            self.memory_size = memory_size
+        
         # code starts with address 0x03 - 0x00-0x02 is unused
         self.code_size = code_size
         self.code_memory = bytearray(code_size)  # Code memory for instructions only
@@ -98,8 +104,8 @@ class YAN85Emulator:
             
             # Convert hex string to 3 bytes and store in code memory
             # Format: arg2 arg1 opcode (as per parse_code.py)
-            self.code_memory[current_addr] = int(instruction_hex[0:2], 16)     # arg2
-            self.code_memory[current_addr + 1] = int(instruction_hex[2:4], 16) # arg1  
+            self.code_memory[current_addr + 1] = int(instruction_hex[0:2], 16) # arg2
+            self.code_memory[current_addr + 0] = int(instruction_hex[2:4], 16) # arg1  
             self.code_memory[current_addr + 2] = int(instruction_hex[4:6], 16) # opcode
             current_addr += 3
 

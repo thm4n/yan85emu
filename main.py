@@ -22,6 +22,7 @@ def parse_args(args):
     parser.add_argument("-b", "--bin", help="Path to the binary file")
     parser.add_argument("-d", "--debug", action="store_true", help="Enable debug mode")
     parser.add_argument("-s", "--stdin", help="File to read stdin from (optional)", default=None)
+    parser.add_argument("-m", "--memory", help="Initial memory state file (optional)", default=None)
     return parser.parse_args(args)
 
 def validate_args(args):
@@ -38,7 +39,7 @@ def main():
     args = parse_args(sys.argv[1:])  # Skip script name
     validate_args(args)
 
-    emulator = YAN85Emulator(stdin_file=args.stdin)
+    emulator = YAN85Emulator(stdin_file=args.stdin, memory_file=args.memory)
     
     if args.debug:
         emulator.debug = True
