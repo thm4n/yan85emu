@@ -1,73 +1,10 @@
 from typing import List, Dict
-from dataclasses import dataclass
 import sys
 import time
 
-# ANSI color codes for terminal output
-class Colors:
-    RESET = '\033[0m'
-    BOLD = '\033[1m'
-    RED = '\033[91m'
-    GREEN = '\033[92m'
-    YELLOW = '\033[93m'
-    BLUE = '\033[94m'
-    MAGENTA = '\033[95m'
-    CYAN = '\033[96m'
-    WHITE = '\033[97m'
-    GRAY = '\033[90m'
-
-@dataclass
-class static_arch_values:
-    # Register IDs
-    @dataclass
-    class reg:
-        a: int = 0x08
-        b: int = 0x04
-        c: int = 0x01
-        d: int = 0x02
-        s: int = 0x20
-        i: int = 0x40
-        f: int = 0x10
-
-    #opcodes:
-    class OpCodes:
-        sys: int = 0x20
-        stm: int = 0x80
-        imm: int = 0x02
-        stk: int = 0x01
-        ldm: int = 0x08
-        cmp: int = 0x10
-        jmp: int = 0x04
-        add: int = 0x40
-
-    # Syscall IDs
-    @dataclass
-    class syscalls:
-        sys_open:       int = 0x08
-        sys_read_code:  int = 0x02
-        sys_read_mem:   int = 0x01
-        sys_write:      int = 0x04
-        sys_sleep:      int = 0x20
-        sys_exit:       int = 0x10
-
-    class flags:
-        equal_to:       int = 0x01
-        not_equal_to:   int = 0x02
-        above_equal:    int = 0x04
-        below_equal:    int = 0x08
-        zero:           int = 0x10
-
-"""
-if equal      : (flags | 0x01)
-if not equal  : (flags | 0x02)
-if above equal: (flags | 0x04)
-if below equal: (flags | 0x08)
-
-if arg1 == arg2 == 0: (flags | 0x10) 
-"""
-
+from Config import static_arch_values, Colors
 class YAN85Emulator:
-    def __init__(self, memory_size: int = 0xff * 3, code_size: int = 0xff * 3, stdin_file: str = None):
+    def __init__(self, memory_size: int = 0x300, code_size: int = 0x300, stdin_file: str = None):
         """Initialize the YAN85 emulator with separated code and data memory."""
         # Registers: a, b, c, d (generic), s (stack), i (instruction pointer), f (flags)
         self.registers: Dict[str, int] = {
@@ -79,11 +16,14 @@ class YAN85Emulator:
             'i': 0,  # instruction pointer (references code memory)
             'f': 0   # flags
         }
+
+        self.last_command = ""
         
         # Separated memory architecture
         self.memory_size = memory_size
         self.memory = bytearray(memory_size)  # Data memory for stack, variables, etc.
-        
+
+        # code starts with address 0x03 - 0x00-0x02 is unused
         self.code_size = code_size
         self.code_memory = bytearray(code_size)  # Code memory for instructions only
 
@@ -118,8 +58,8 @@ class YAN85Emulator:
 
     def load_program_from_text(self, program: List[str]) -> None:
         """Convert yan85 assembly text to 3-byte instructions and load into code memory."""
-        current_addr = 0x00
-        
+        current_addr = 0x03
+
         for line in program:
             line = line.strip()
             if line and not line.startswith('#'):  # Skip empty lines and comments
@@ -135,8 +75,8 @@ class YAN85Emulator:
                     self.code_memory[current_addr + i] = byte
                 current_addr += 3
                     
-        # Start execution at instruction 0x00
-        self.registers['i'] = 0x00
+        # Start execution at instruction 0x01
+        self.registers['i'] = 0x01
 
     def load_program_from_binary_data(self, hex_data: str) -> None:
         """Load a program from hex string data into code memory (each instruction is 6 hex chars = 3 bytes)."""
@@ -146,7 +86,7 @@ class YAN85Emulator:
         if len(hex_data) % 6 != 0:
             raise ValueError("Invalid hex data length, must be a multiple of 6")
         
-        current_addr = 0x00
+        current_addr = 0x03
         
         # Process each 6-character (3-byte) instruction
         for i in range(0, len(hex_data), 6):
@@ -162,9 +102,9 @@ class YAN85Emulator:
             self.code_memory[current_addr + 1] = int(instruction_hex[2:4], 16) # arg1  
             self.code_memory[current_addr + 2] = int(instruction_hex[4:6], 16) # opcode
             current_addr += 3
-        
-        # Start execution at instruction 0x00
-        self.registers['i'] = 0x00
+
+        # Start execution at instruction 0x01
+        self.registers['i'] = 0x01
 
     def _encode_text_instruction(self, instruction: List[str]) -> bytes:
         """Convert text instruction to 3-byte format."""
@@ -382,7 +322,7 @@ class YAN85Emulator:
             # Store number of bytes written in the result register
             self.set_register_value(arg2, bytes_written & 0xFF if bytes_written >= 0 else 0xFF)
                 
-        elif arg1 == static_arch_values.syscalls.sys_read_mem:
+        elif arg1 == static_arch_values.syscalls.sys_read:
             # sys_read: read from fd(A) into memory address(B) for (C) bytes
             fd = self.get_register_value(static_arch_values.reg.a)
             buffer_addr = self.get_register_value(static_arch_values.reg.b)
@@ -480,13 +420,6 @@ class YAN85Emulator:
             time.sleep(sleep_ms / 1000.0)  # Convert ms to seconds
             self.set_register_value(arg2, 0)  # Success
             
-        elif arg1 == static_arch_values.syscalls.sys_read_code:
-            # sys_read_code: read program code (similar to sys_read but for code)
-            # Implementation depends on specific requirements
-            if self.debug:
-                print(f"{Colors.CYAN}[DEBUG]{Colors.RESET} {Colors.RED}sys_read_code{Colors.RESET}: not fully implemented")
-            self.set_register_value(arg2, -1)  # Not implemented
-            
         else:
             # Unknown syscall
             if self.debug:
@@ -512,7 +445,7 @@ class YAN85Emulator:
 
     def execute_stk(self, arg1: int, arg2: int) -> None:
         """Execute stack operation instruction."""
-        if arg1 == 0x00:  # Push operation
+        if arg2 != 0x00:  # Push operation
             value = self.get_register_value(arg2)
             
             # Push to data memory using stack pointer
@@ -526,7 +459,7 @@ class YAN85Emulator:
             if self.debug:
                 print(f"{Colors.CYAN}[DEBUG]{Colors.RESET} {Colors.GREEN}push{Colors.RESET} {Colors.BLUE}{self.get_register_name(arg2)}{Colors.RESET} -> mem[{Colors.BOLD}{stack_ptr:04x}{Colors.RESET}] = {Colors.BOLD}{value}{Colors.RESET}")
                 
-        else:  # Pop operation
+        if arg1 != 0x00:  # Pop operation
             stack_ptr = self.get_register_value(static_arch_values.reg.s)
             
             if stack_ptr == 0:
@@ -566,11 +499,11 @@ class YAN85Emulator:
         else:
             self.registers['f'] |= static_arch_values.flags.not_equal_to
 
-        if result <= 0:
-            self.registers['f'] |= static_arch_values.flags.below_equal
+        if result < 0:
+            self.registers['f'] |= static_arch_values.flags.below
         
-        if result >= 0:
-            self.registers['f'] |= static_arch_values.flags.above_equal
+        if result > 0:
+            self.registers['f'] |= static_arch_values.flags.above
         
         if self.debug:
             print(f"{Colors.CYAN}[DEBUG]{Colors.RESET} {Colors.YELLOW}cmp{Colors.RESET} {Colors.BLUE}{self.get_register_name(arg1)}{Colors.RESET} {Colors.BLUE}{self.get_register_name(arg2)}{Colors.RESET} -> {Colors.BOLD}{val1}{Colors.RESET} - {Colors.BOLD}{val2}{Colors.RESET} = {Colors.BOLD}{result}{Colors.RESET}, flags: {Colors.MAGENTA}{self.registers['f']:02x}{Colors.RESET}")
@@ -580,7 +513,7 @@ class YAN85Emulator:
         jump_instruction = self.get_register_value(arg2)
         
         should_jump = False        
-        if self.registers['f'] & arg1 == arg1:
+        if self.registers['f'] & arg1 != 0:
             should_jump = True
 
         if self.debug:
@@ -627,8 +560,8 @@ class YAN85Emulator:
     def run(self) -> None:
         """Run the loaded program."""
         self.running = True
-        self.registers['i'] = 0x00  # Start at instruction number 0
-        
+        self.registers['i'] = 0x01  # Start at instruction number 1
+
         while self.running:
             # Register 'i' contains instruction number (not byte address)
             instruction_num = self.registers['i']
@@ -666,25 +599,19 @@ class YAN85Emulator:
             self.execute_instruction(opcode, arg1, arg2)
             
             # Move to next instruction only if PC wasn't changed by jump or other instruction
-            if self.running and self.registers['i'] == current_pc:
+            if self.running:
                 self.registers['i'] += 1  # Move to next instruction number
 
     def print_state(self) -> None:
         """Print the current state of the emulator."""
-        print("=== YAN85 Emulator State ===")
         print(f"PC (register i): {self.registers['i']:04x} (instruction #{self.registers['i']})")
         print("Registers:")
-        for reg, val in self.registers.items():
-            print(f"  {reg}: {val} (0x{val:02x})")
-        print(f"Running: {self.running}")
-        print(f"Data memory size: {self.memory_size} bytes")
-        print(f"Code memory size: {self.code_size} bytes")
+        print(" | ".join([f"{reg}: 0x{val:02x}" for reg, val in self.registers.items()]))
 
     def step(self) -> bool:
         """Execute one instruction and return True if successful."""
         if not self.running:
             return False
-            
         # Register 'i' contains instruction number 
         instruction_num = self.registers['i']
         
@@ -710,12 +637,11 @@ class YAN85Emulator:
             print(f"{Colors.CYAN}[DEBUG]{Colors.RESET} {Colors.MAGENTA}PC: {instruction_num:04x}{Colors.RESET} (instruction #{instruction_num}), Instruction: {Colors.YELLOW}{opcode:02x} {arg1:02x} {arg2:02x}{Colors.RESET}")
             
         # Store current PC before execution (for jump detection)
-        current_pc = self.registers['i']
         
         try:
             self.execute_instruction(opcode, arg1, arg2)
             # Move to next instruction only if PC wasn't changed by jump or other instruction
-            if self.running and self.registers['i'] == current_pc:
+            if self.running:
                 self.registers['i'] += 1  # Move to next instruction number
             return True
         except Exception as e:
@@ -917,7 +843,7 @@ class YAN85Emulator:
         self.registers = {reg: 0 for reg in self.registers.keys()}
         self.memory = bytearray(self.memory_size)  # Reset data memory
         self.code_memory = bytearray(self.code_size)  # Reset code memory
-        self.registers['i'] = 0x00
+        self.registers['i'] = 0x01
         self.running = True
         self.breakpoints.clear()
 
@@ -928,11 +854,15 @@ class YAN85Emulator:
         
         while True:
             try:
-                cmd = input(f"{Colors.CYAN}(yan85-debug) {Colors.RESET}").strip().lower()
+                cmd = input(f"{Colors.CYAN}$ {Colors.RESET}").strip().lower()
+                if not cmd:
+                    cmd = self.last_command
+                else:
+                    self.last_command = cmd
                 
                 if not cmd:
                     continue
-                    
+
                 parts = cmd.split()
                 command = parts[0]
                 

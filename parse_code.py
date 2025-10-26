@@ -13,35 +13,40 @@ class static_arch_values:
     # Register IDs
     @dataclass
     class reg:
-        a: int = 0x08
+        a: int = 0x40
         b: int = 0x04
-        c: int = 0x01
-        d: int = 0x02
-        s: int = 0x20
-        i: int = 0x40
-        f: int = 0x10
+        c: int = 0x10
+        d: int = 0x20
+        s: int = 0x01
+        i: int = 0x02
+        f: int = 0x08
 
     #opcodes:
     class OpCodes:
-        sys: int = 0x20
-        stm: int = 0x80
-        imm: int = 0x02
-        stk: int = 0x01
-        ldm: int = 0x08
-        cmp: int = 0x10
-        jmp: int = 0x04
-        add: int = 0x40
+        imm: int = 0x80
+        add: int = 0x08
+        stk: int = 0x40
+        stm: int = 0x20
+        ldm: int = 0x01
+        cmp: int = 0x04
+        jmp: int = 0x10
+        sys: int = 0x02
 
     # Syscall IDs
     @dataclass
     class syscalls:
         sys_open:       int = 0x08
-        sys_read_code:  int = 0x02
-        sys_read_mem:   int = 0x01
+        sys_read:       int = 0x10
         sys_write:      int = 0x04
-        sys_sleep:      int = 0x20
-        sys_exit:       int = 0x10
+        sys_sleep:      int = 0x02
+        sys_exit:       int = 0x20
 
+    class flags:
+        equal_to:       int = 0x04
+        not_equal_to:   int = 0x10
+        above:          int = 0x01
+        below:          int = 0x08
+        zero:           int = 0x02
 
 def parse_code_segment(code_segment_raw: str, base_address: int) -> List[Instruction]:
     code_segment_str_length: int = len(code_segment_raw)
@@ -59,9 +64,9 @@ def parse_code_segment(code_segment_raw: str, base_address: int) -> List[Instruc
     for i in range(num_opcodes):
         code.append(
             Instruction(
-                code_raw[i * 3 + 2],
-                code_raw[i * 3 + 1],
-                code_raw[i * 3 + 0],
+                code_raw[i * 3 + 2], # opcode
+                code_raw[i * 3 + 0], # arg1
+                code_raw[i * 3 + 1], # arg2
                 base_address + (i * 3)  # Address is the index of the instruction in the code segment
             )
         )
@@ -93,10 +98,8 @@ def describe_instruction(instruction: Instruction) -> str:
         desc += f"SYS {get_hex(instruction.arg1)} "
         if instruction.arg1 == static_arch_values.syscalls.sys_open:
             desc += f"{get_reg(instruction.arg2)} ; (sys_open)"
-        elif instruction.arg1 == static_arch_values.syscalls.sys_read_code:
-            desc += f"{get_reg(instruction.arg2)} ; (sys_read_code)"
-        elif instruction.arg1 == static_arch_values.syscalls.sys_read_mem:
-            desc += f"{get_reg(instruction.arg2)} ; (sys_read_mem)"
+        elif instruction.arg1 == static_arch_values.syscalls.sys_read:
+            desc += f"{get_reg(instruction.arg2)} ; (sys_read)"
         elif instruction.arg1 == static_arch_values.syscalls.sys_write:
             desc += f"{get_reg(instruction.arg2)} ; (sys_write)"
         elif instruction.arg1 == static_arch_values.syscalls.sys_sleep:
@@ -135,12 +138,12 @@ def describe_instruction(instruction: Instruction) -> str:
 
 
 def main():
-    with open("code.raw", "r") as f:
+    with open("../19.1/code2.raw", "r") as f:
         code_segment_raw = f.read().strip()
     
     text = []
 
-    insts = parse_code_segment(code_segment_raw)
+    insts = parse_code_segment(code_segment_raw, 0x03)
     for inst in insts:
         text.append(describe_instruction(inst))
 
